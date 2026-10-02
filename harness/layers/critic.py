@@ -79,16 +79,63 @@ class Critic(Middleware):
     name = "critic"
 
     def after_agent(self, ctx, report):
-        # TODO (§2): khoảng 10-25 dòng.
-        #  1. Lấy report["claims"]; nếu rỗng hoặc không phải list thì thôi.
-        #  2. Với mỗi claim: nếu claim["text"] có trong ctx.observed_text
-        #     -> giữ nguyên (KHÔNG sửa chữ).
-        #  3. Nếu không: thử tách câu ghép (trường hợp (c) ở docstring).
-        #     Tách được -> giữ cả hai nửa, mỗi nửa gắn doc_id của tài liệu
-        #     thật sự chứa nó, và đặt report["abstain"] = True.
-        #  4. Không tách được -> đây là bịa: bỏ claim đi.
-        #  5. Nếu không còn claim nào: report["abstain"] = True,
-        #     claims = [], citations = [], và viết lại "answer" nói rõ là
-        #     không đủ căn cứ.
-        #  6. Cập nhật report["citations"] cho khớp với claims còn lại.
-        return report  # <- mặc định KHÔNG LÀM GÌ: agent vẫn chạy được
+        if not isinstance(report, dict):
+            return report
+        claims = report.get("claims")
+        if not isinstance(claims, list):
+            return report
+
+        def _find_doc(part: str):
+            if not ctx.corpus:
+                return None
+            for doc in ctx.corpus.docs:
+                if doc.body in ctx.observed_text and any(part in line for line in doc.body.splitlines()):
+                    return doc
+            return None
+
+        new_claims = []
+        for claim in claims:
+            if not isinstance(claim, dict):
+                continue
+            text = claim.get("text", "")
+            if not text:
+                continue
+
+            if text in ctx.observed_text:
+                new_claims.append(claim)
+                continue
+
+            # Thử tách câu ghép do mâu thuẫn nguồn (trường hợp c)
+            delimiter = " và "
+            split_found = False
+            start_idx = 0
+            while True:
+                idx = text.find(delimiter, start_idx)
+                if idx == -1:
+                    break
+                part1 = text[:idx]
+                part2 = text[idx + len(delimiter):]
+                if part1 in ctx.observed_text and part2 in ctx.observed_text:
+                    doc1 = _find_doc(part1)
+                    doc2 = _find_doc(part2)
+                    if doc1 and doc2 and doc1.doc_id != doc2.doc_id:
+                        new_claims.append({"text": part1, "doc_id": doc1.doc_id})
+                        new_claims.append({"text": part2, "doc_id": doc2.doc_id})
+                        report["abstain"] = True
+                        split_found = True
+                        break
+                start_idx = idx + 1
+
+            # Nếu không tách được: đây là câu bịa, bỏ qua không thêm vào new_claims
+
+        if not new_claims:
+            report["abstain"] = True
+            report["claims"] = []
+            report["citations"] = []
+            report["answer"] = "Không đủ căn cứ để trả lời: các tài liệu đã đọc không chứa thông tin xác thực cho câu hỏi này."
+        else:
+            report["claims"] = new_claims
+            valid_doc_ids = {c["doc_id"] for c in new_claims if isinstance(c, dict) and c.get("doc_id")}
+            report["citations"] = sorted(valid_doc_ids)
+
+        return report

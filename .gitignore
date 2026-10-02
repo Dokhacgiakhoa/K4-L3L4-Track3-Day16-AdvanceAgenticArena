@@ -20,3 +20,7 @@ phases/private/
 
 # macOS
 .DS_Store
+
+# Reference materials
+harness_2A*
+

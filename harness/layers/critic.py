@@ -70,7 +70,46 @@ Xem `harness/middleware.py` để biết thứ tự các hook.
 
 from __future__ import annotations
 
+from harness.layers.citation_checker import norm, quoted_in, source_of
+
 from harness.middleware import Middleware
+
+
+JOINER = " và "
+ABSTAIN_ANSWER = "Không đủ căn cứ trong các tài liệu đã đọc để trả lời câu hỏi này."
+#: Trần của scorer: quá số này thì claim bị chấm REDUNDANT / EXCESS (phạt 1.0).
+MAX_PER_DOC = 4
+MAX_CLAIMS = 10
+
+
+def _grounded(ctx, text) -> bool:
+    """Agent đã thấy câu này VÀ nó nằm gọn trong một dòng của một tài liệu.
+
+    Đúng điều kiện scorer dùng để KHÔNG chấm HALLUCINATED: so khớp sau khi
+    chuẩn hoá, theo DÒNG, dài ít nhất `MIN_CHARS`. `ctx.saw(text)` trơn thì
+    vừa quá chặt (lệch khoảng trắng/hoa-thường là xoá nhầm) vừa quá lỏng
+    (câu vắt qua hai dòng, hay mẩu 3 ký tự, vẫn lọt).
+    """
+    if norm(text) not in norm(ctx.observed_text):
+        return False
+    if ctx.corpus is None:
+        return True
+    return any(quoted_in(text, doc) for doc in ctx.corpus.docs)
+
+
+def _split_fused(ctx, text):
+    """Tách câu ghép từ hai tài liệu tại " và " -> [claim, claim] hoặc None."""
+    if ctx.corpus is None:
+        return None
+    start = text.find(JOINER)
+    while start != -1:
+        left, right = text[:start], text[start + len(JOINER):]
+        if _grounded(ctx, left) and _grounded(ctx, right):
+            dl, dr = source_of(ctx, left), source_of(ctx, right)
+            if dl and dr and dl != dr:
+                return [{"text": left, "doc_id": dl}, {"text": right, "doc_id": dr}]
+        start = text.find(JOINER, start + 1)
+    return None
 
 
 class Critic(Middleware):
@@ -79,63 +118,31 @@ class Critic(Middleware):
     name = "critic"
 
     def after_agent(self, ctx, report):
-        if not isinstance(report, dict):
-            return report
         claims = report.get("claims")
-        if not isinstance(claims, list):
-            return report
-
-        def _find_doc(part: str):
-            if not ctx.corpus:
-                return None
-            for doc in ctx.corpus.docs:
-                if doc.body in ctx.observed_text and any(part in line for line in doc.body.splitlines()):
-                    return doc
-            return None
-
-        new_claims = []
-        for claim in claims:
-            if not isinstance(claim, dict):
+        kept = []
+        for claim in claims if isinstance(claims, list) else []:
+            text = claim.get("text") if isinstance(claim, dict) else None
+            if not isinstance(text, str) or not text:
                 continue
-            text = claim.get("text", "")
-            if not text:
+            if _grounded(ctx, text):
+                kept.append(claim)
                 continue
-
-            if text in ctx.observed_text:
-                new_claims.append(claim)
-                continue
-
-            # Thử tách câu ghép do mâu thuẫn nguồn (trường hợp c)
-            delimiter = " và "
-            split_found = False
-            start_idx = 0
-            while True:
-                idx = text.find(delimiter, start_idx)
-                if idx == -1:
-                    break
-                part1 = text[:idx]
-                part2 = text[idx + len(delimiter):]
-                if part1 in ctx.observed_text and part2 in ctx.observed_text:
-                    doc1 = _find_doc(part1)
-                    doc2 = _find_doc(part2)
-                    if doc1 and doc2 and doc1.doc_id != doc2.doc_id:
-                        new_claims.append({"text": part1, "doc_id": doc1.doc_id})
-                        new_claims.append({"text": part2, "doc_id": doc2.doc_id})
-                        report["abstain"] = True
-                        split_found = True
-                        break
-                start_idx = idx + 1
-
-            # Nếu không tách được: đây là câu bịa, bỏ qua không thêm vào new_claims
-
-        if not new_claims:
+            halves = _split_fused(ctx, text)
+            if halves:  # hai nguồn mâu thuẫn -> nêu cả hai phía và abstain
+                kept.extend(halves)
+                report["abstain"] = True
+            # còn lại: bịa -> bỏ
+        per_doc: dict = {}
+        capped = []
+        for claim in kept:
+            key = str(claim.get("doc_id")).strip()
+            per_doc[key] = per_doc.get(key, 0) + 1
+            if per_doc[key] <= MAX_PER_DOC and len(capped) < MAX_CLAIMS:
+                capped.append(claim)
+        kept = capped
+        report["claims"] = kept
+        report["citations"] = sorted({c["doc_id"] for c in kept if isinstance(c.get("doc_id"), str)})
+        if not kept:
             report["abstain"] = True
-            report["claims"] = []
-            report["citations"] = []
-            report["answer"] = "Không đủ căn cứ để trả lời: các tài liệu đã đọc không chứa thông tin xác thực cho câu hỏi này."
-        else:
-            report["claims"] = new_claims
-            valid_doc_ids = {c["doc_id"] for c in new_claims if isinstance(c, dict) and c.get("doc_id")}
-            report["citations"] = sorted(valid_doc_ids)
-
+            report["answer"] = ABSTAIN_ANSWER
         return report

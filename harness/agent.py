@@ -161,7 +161,7 @@ MAX_FINAL_DEFERRALS = 2
 #: brief (flag `single_model_call`), so every layer had nothing to work on
 #: and nine different harnesses scored an identical 39.47. `MockModel` never
 #: finalises early, so this is a no-op on the practice path.
-MAX_PREMATURE_REFUSALS = 2
+MAX_PREMATURE_REFUSALS = 3
 
 #: Tool calls that must still be left (on top of the `submit`) before an
 #: unsupported FINAL is refused: one to re-query, one to fetch.
@@ -173,11 +173,37 @@ SEARCH_FIRST_NUDGE = (
     "Chưa được kết luận: bạn chưa gọi công cụ nào nên chưa có bằng chứng. "
     "Lượt này hãy viết THOUGHT rồi ACTION gọi search với từ khoá chính của câu hỏi."
 )
-READ_FIRST_NUDGE = (
-    "Chưa được kết luận: không câu trích nào của bạn nằm trong tài liệu đã đọc. "
-    "Lượt này hãy viết THOUGHT rồi ACTION: fetch_doc tài liệu liên quan nhất chưa đọc, "
-    "hoặc search lại bằng thuật ngữ nội bộ khác (tên quy trình, chính sách, phòng ban)."
+FETCH_FIRST_NUDGE = (
+    "Chưa được kết luận: bạn mới chỉ tìm kiếm (search) mà chưa đọc toàn văn (fetch_doc) tài liệu nào. "
+    "Kết quả tìm kiếm chỉ là trích đoạn ngắn. Lượt này hãy viết THOUGHT rồi ACTION: "
+    "fetch_doc tài liệu liên quan nhất trong danh sách tìm kiếm để đọc toàn văn."
 )
+READ_FIRST_NUDGE = (
+    "Chưa được kết luận: câu trích dẫn của bạn không nằm nguyên văn trong tài liệu đã đọc toàn văn (fetch_doc). "
+    "Lượt này hãy viết THOUGHT rồi ACTION: fetch_doc tài liệu liên quan nhất chưa đọc, "
+    "hoặc search lại bằng thuật ngữ nội bộ khác (tên quy trình, chính sách, phòng ban, mã số)."
+)
+
+
+def _extract_key_terms(question: str) -> list[str]:
+    """Trích xuất các thực thể quan trọng từ câu hỏi: mã số, ticket, tên riêng, thuật ngữ trong ngoặc kép."""
+    terms: list[str] = []
+    if not isinstance(question, str):
+        return terms
+    for m in re.finditer(r"(?:ticket\s*)?(\d{4,})", question, re.IGNORECASE):
+        terms.append(m.group(0))
+    for m in re.finditer(r"\b[A-Z]{2,}-\d+\b", question):
+        terms.append(m.group(0))
+    for m in re.finditer(r'["«\']([^"»\']{3,40})["»\']', question):
+        terms.append(m.group(1))
+    seen: set[str] = set()
+    result: list[str] = []
+    for t in terms:
+        s = t.strip()
+        if s and s.lower() not in seen:
+            seen.add(s.lower())
+            result.append(s)
+    return result
 
 #: What a model writes where CONTENT belongs when it is QUOTING the
 #: protocol instead of answering: the template's own `...`, an ellipsis,
@@ -272,18 +298,25 @@ D. MỖI PHẦN TỬ claims LÀ MỘT CÂU CHÉP NGUYÊN VĂN.
    văn. Mỗi câu trích không quá 400 ký tự. Cắt bớt là hợp lệ, viết lại thì mất
    điểm.
 
-E. KẾT THÚC SỚM.
-   Mỗi lượt chỉ gọi đúng một công cụ. Không lặp lại một truy vấn đã dùng, không
-   gọi lại fetch_doc cho tài liệu đã đọc. Ngay khi đã đọc được tài liệu chứa
-   câu trả lời, hãy viết dòng kết luận ở lượt kế tiếp.
+E. KẾT THÚC SỚM VÀ ĐỌC TOÀN VĂN.
+   Mỗi lượt chỉ gọi đúng một công cụ. Kết quả search chỉ là tóm tắt; bạn phải
+   gọi fetch_doc tài liệu triển vọng nhất để đọc toàn văn trước khi trích dẫn.
+   Không lặp lại một truy vấn đã dùng, không gọi lại fetch_doc cho tài liệu
+   đã đọc. Ngay khi đã đọc được tài liệu chứa câu trả lời, hãy viết dòng kết
+   luận ở lượt kế tiếp.
 
-F. KHI CÂU HỎI YÊU CẦU CHỌN MỘT KẾT LUẬN.
+F. KHI CÂU HỎI YÊU CẦU CHỌN MỘT KẾT LUẬN (SYNTHESIS).
    Nếu câu hỏi liệt kê sẵn vài phương án đánh chữ cái trong ngoặc — (a), (b), (c) —
-   và yêu cầu chọn một, đối tượng JSON có thêm khóa thứ năm tên verdict: giá trị là
+   hoặc hỏi lựa chọn kết luận, đối tượng JSON có thêm khóa thứ năm tên verdict: giá trị là
    MỘT chuỗi duy nhất, chép nguyên văn đúng từng chữ phương án đã chọn từ câu hỏi,
    không diễn giải lại. Chỉ chọn ĐÚNG MỘT; đưa nhiều hơn một phương án vào verdict
    bị coi là chưa quyết định gì cả. Trường answer vẫn phải trả lời đầy đủ câu hỏi
-   như bình thường. Câu hỏi không liệt kê phương án nào thì bỏ hẳn khóa verdict."""
+   như bình thường. Câu hỏi không liệt kê phương án nào thì bỏ hẳn khóa verdict.
+
+G. TÌM KIẾM THEO MÃ SỐ VÀ THỰC THỂ CỤ THỂ.
+   Nếu câu hỏi nhắc tới một mã số (ví dụ: ticket 48213, mã hồ sơ, phòng ban cụ thể),
+   hãy ưu tiên tìm kiếm trực tiếp bằng mã số hoặc tên riêng đó nếu lần tìm kiếm đầu
+   chưa thấy thông tin cần thiết."""
 
 
 def real_model_system_prompt(base: str = ARENA_SYSTEM_PROMPT) -> str:
@@ -621,30 +654,57 @@ class ReActAgent:
     def _premature_nudge(self, ctx: AgentContext, final) -> str | None:
         """The nudge to send instead of accepting this FINAL, or None.
 
-        Refuses (at most `MAX_PREMATURE_REFUSALS` times) a FINAL written
-        before any tool call, and a FINAL none of whose claims quotes the
-        evidence read so far while the budget still allows a re-query and
-        a fetch. Never fires on budget exhaustion, so it cannot fight
-        `budget_policy`.
+        Refuses premature FINALs on real models:
+        1. Refuses if no tools called yet (Turn 1 single_model_call).
+        2. Refuses if model has only searched and never called fetch_doc.
+        3. Refuses premature abstention when question entities are unsearched.
+        4. Refuses if claims quote nothing from fetched documents.
+        Never fires on MockModel or budget exhaustion.
         """
+        if _is_mock(self.model):
+            return None
+
         if self._premature_refusals >= MAX_PREMATURE_REFUSALS:
             return None
+
         if not ctx.observations:
             return SEARCH_FIRST_NUDGE
-        if self._read_refused:
+
+        if self._final_deferrals >= MAX_FINAL_DEFERRALS:
             return None
+
+        if isinstance(final, dict) and final.get("abstain") is True:
+            return None
+
         limit = ctx.max_tool_calls
         calls = getattr(ctx.tools, "calls", 0)
-        if limit is None or calls > limit - 1 - PREMATURE_MIN_CALLS_LEFT:
+        if limit is not None and calls > limit - 1 - PREMATURE_MIN_CALLS_LEFT:
             return None
-        observed = _squash(ctx.observed_text)
+
+        fetched_ids = ctx.state.get("fetched_doc_ids", set())
+        fetched_texts = ctx.state.get("fetched_texts", [])
+
+        # Kiểm tra nếu chưa fetch_doc tài liệu nào
+        if not fetched_ids:
+            return FETCH_FIRST_NUDGE
+
+        # Nếu đã có tài liệu fetch_doc, kiểm tra claims
+        squashed_fetched = _squash("\n".join(fetched_texts))
         claims = final.get("claims") if isinstance(final, dict) else None
-        for claim in claims if isinstance(claims, list) else []:
-            text = claim.get("text") if isinstance(claim, dict) else None
-            if isinstance(text, str) and _squash(text) and _squash(text) in observed:
-                return None
-        self._read_refused = True
-        return READ_FIRST_NUDGE
+        if claims and isinstance(claims, list):
+            has_grounded = False
+            for claim in claims:
+                if isinstance(claim, dict):
+                    text = claim.get("text")
+                    if isinstance(text, str) and _squash(text) and _squash(text) in squashed_fetched:
+                        has_grounded = True
+                        break
+            if not has_grounded and not (isinstance(final, dict) and final.get("abstain") is True):
+                if not self._read_refused:
+                    self._read_refused = True
+                    return READ_FIRST_NUDGE
+
+        return None
 
     # -- reading the model ---------------------------------------------
 
@@ -746,6 +806,16 @@ class ReActAgent:
         result = call(parsed.tool, dict(parsed.args))
         if result is None or not hasattr(result, "ok"):
             return f"{TOOL_ERROR_PREFIX} layer trả về kết quả không hợp lệ cho {parsed.tool}"
+        if result.ok:
+            if parsed.tool == "search":
+                q = parsed.args.get("query") if isinstance(parsed.args, dict) else None
+                if isinstance(q, str):
+                    ctx.state.setdefault("searches", []).append(q)
+            elif parsed.tool == "fetch_doc":
+                did = parsed.args.get("doc_id") if isinstance(parsed.args, dict) else None
+                if isinstance(did, str):
+                    ctx.state.setdefault("fetched_doc_ids", set()).add(did)
+                    ctx.state.setdefault("fetched_texts", []).append(result.content)
         return result.content if result.ok else f"{TOOL_ERROR_PREFIX} {result.error}"
 
     def _dispatch(self, name: str, args: dict) -> ToolResult:

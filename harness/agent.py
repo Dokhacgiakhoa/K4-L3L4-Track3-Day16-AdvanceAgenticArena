@@ -688,12 +688,20 @@ class ReActAgent:
         if self._final_deferrals >= MAX_FINAL_DEFERRALS:
             return None
 
-        if isinstance(final, dict) and final.get("abstain") is True:
-            return None
-
         limit = ctx.max_tool_calls
         calls = getattr(ctx.tools, "calls", 0)
         if limit is not None and calls > limit - 1 - PREMATURE_MIN_CALLS_LEFT:
+            return None
+
+        if isinstance(final, dict) and final.get("abstain") is True:
+            key_terms = _extract_key_terms(ctx.question)
+            searches = " ".join(ctx.state.get("searches", [])).lower()
+            unsearched = [t for t in key_terms if t.lower() not in searches]
+            if unsearched:
+                return (
+                    f"Chưa đủ căn cứ để kết luận không có dữ liệu (abstain): bạn chưa tìm kiếm theo các thực thể cụ thể "
+                    f"trong câu hỏi: {', '.join(unsearched)}. Lượt này hãy viết THOUGHT rồi ACTION gọi search với các từ khoá này."
+                )
             return None
 
         fetched_ids = ctx.state.get("fetched_doc_ids", set())

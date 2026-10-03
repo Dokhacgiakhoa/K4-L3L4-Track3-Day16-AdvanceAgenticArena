@@ -144,11 +144,19 @@ class Critic(Middleware):
         kept.sort(key=_relevance_score, reverse=True)
         per_doc: dict = {}
         capped = []
+        zero_score_count = 0
         for claim in kept:
             key = str(claim.get("doc_id")).strip()
+            score = _relevance_score(claim)
+            # Khống chế các claim rác/padding (không chứa từ khoá câu hỏi) trong ngưỡng dung sai 2
+            if score == 0:
+                if zero_score_count >= 2:
+                    continue
+                zero_score_count += 1
             per_doc[key] = per_doc.get(key, 0) + 1
-            if per_doc[key] <= MAX_PER_DOC and len(capped) < 3:
-                capped.append(claim)
+            if per_doc[key] <= MAX_PER_DOC and len(capped) < MAX_CLAIMS:
+                if len(capped) < 3 or score > 0:
+                    capped.append(claim)
         kept = capped
         report["claims"] = kept
         report["citations"] = sorted({c["doc_id"] for c in kept if isinstance(c.get("doc_id"), str)})

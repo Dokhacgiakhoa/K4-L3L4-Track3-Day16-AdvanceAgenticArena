@@ -2,7 +2,8 @@
 
 Cuộc thi 120 phút tại lớp · Track 3 · VinUniversity
 
-> **Đọc theo thứ tự:** `README.md` (trang này — bức tranh tổng thể) → [`GUIDE.md`](GUIDE.md)
+> **Đọc theo thứ tự:** [`ADVANCED_AGENT_ARCHITECTURES.md`](ADVANCED_AGENT_ARCHITECTURES.md) (tổng hợp toàn bộ lý thuyết 2 slide) →
+> `README.md` (trang này — bức tranh tổng thể) → [`GUIDE.md`](GUIDE.md)
 > (hướng dẫn làm từng bước) → [`RUBRIC.md`](RUBRIC.md) (cách chấm điểm chi tiết) →
 > [`phases/README.md`](phases/README.md) (luyện tập khác chấm điểm thế nào).
 
@@ -422,5 +423,20 @@ Phân tích từ dữ liệu bài thi của học viên đạt điểm cao nhấ
 6. **Bảo toàn Tính tương thích & Ngân sách**:
    - Đối với `MockModel` (chạy offline / verify), logic `_is_mock` bảo đảm giữ nguyên 100% hành vi kiểm thử chuẩn mà không làm biến động chi phí token hay số lượt gọi công cụ.
    - `budget_policy` bảo đảm Agent luôn dừng đúng lúc để dành riêng 1 lượt cho `submit()`, bảo toàn điểm Efficiency tối đa (13 – 14.5 / 15 điểm).
+
+---
+
+## 13. Tài liệu Tham khảo Lý thuyết Nâng cao (Day 16)
+
+Toàn bộ lý thuyết từ slide bài giảng đã được hệ thống hóa đầy đủ tại [`ADVANCED_AGENT_ARCHITECTURES.md`](ADVANCED_AGENT_ARCHITECTURES.md), bao gồm:
+- **Sơ đồ LangGraph State Machine** của Reflexion và cấu trúc `ReflexionState` code-level.
+- **Mô hình PRM vs ORM**: Chấm điểm và cắt tỉa từng bước suy luận trung gian.
+- **Nấc thang tự tiến hóa** của AI Agent (arXiv:2508.07407) và cơ chế tự sửa mã nguồn DarwinGödel Machine (Sakana AI, 2025).
+- **Kiến trúc DeepAgents** cho tác vụ dài hơi: Plan file, Filesystem ngoại vi, Subagent spawning và Auto-summarisation.
+- **Sơ đồ phân lớp củ hành (Onion Model)** của Harness Middleware với đúng 6 Contractual Hooks.
+- **4 cấp độ leo thang của Middleware** để phát hiện và triệt tiêu Doom Loop / Infinite Loop.
+- **Anatomy Orchestrator — Worker** và cơ chế Context Isolation (Anthropic, 2026).
+- **Bộ chuẩn Benchmark Agent 2026** (Terminal-Bench 2.0, GAIA, $\tau^2$-bench, SWE-bench Verified...).
+
 
 

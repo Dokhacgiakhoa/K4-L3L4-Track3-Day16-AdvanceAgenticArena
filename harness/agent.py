@@ -185,6 +185,13 @@ READ_FIRST_NUDGE = (
 )
 
 
+VERDICT_REQUIRED_NUDGE = (
+    "Chưa được kết luận: câu hỏi yêu cầu chọn một kết luận cụ thể (synthesis). "
+    "Bạn PHẢI bổ sung trường 'verdict' vào JSON của FINAL mang ĐÚNG MỘT phương án đã chọn "
+    "(ví dụ: \"verdict\": \"...\"), không nêu nước đôi và không để trống."
+)
+
+
 def _extract_key_terms(question: str) -> list[str]:
     """Trích xuất các thực thể quan trọng từ câu hỏi: mã số, ticket, tên riêng, thuật ngữ trong ngoặc kép."""
     terms: list[str] = []
@@ -204,6 +211,14 @@ def _extract_key_terms(question: str) -> list[str]:
             seen.add(s.lower())
             result.append(s)
     return result
+
+
+def _extract_verdict_candidates(question: str) -> list[str]:
+    """Phát hiện nếu câu hỏi chứa các phương án lựa chọn dạng (a) ..., (b) ..., (c) ..."""
+    if not isinstance(question, str):
+        return []
+    matches = re.findall(r"\([a-d]\)\s*([^;.\n]+)", question, re.IGNORECASE)
+    return [m.strip() for m in matches if m.strip()]
 
 #: What a model writes where CONTENT belongs when it is QUOTING the
 #: protocol instead of answering: the template's own `...`, an ellipsis,
@@ -703,6 +718,14 @@ class ReActAgent:
                 if not self._read_refused:
                     self._read_refused = True
                     return READ_FIRST_NUDGE
+
+        # Nếu câu hỏi là đề synthesis yêu cầu chọn phương án, đảm bảo có verdict
+        verdict_candidates = _extract_verdict_candidates(ctx.question)
+        if verdict_candidates and isinstance(final, dict):
+            raw_v = final.get("verdict")
+            if not raw_v or not str(raw_v).strip():
+                if limit is None or calls <= limit - 1 - PREMATURE_MIN_CALLS_LEFT:
+                    return VERDICT_REQUIRED_NUDGE
 
         return None
 

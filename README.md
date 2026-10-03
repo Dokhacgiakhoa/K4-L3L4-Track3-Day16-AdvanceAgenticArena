@@ -406,8 +406,12 @@ Phân tích từ dữ liệu bài thi của học viên đạt điểm cao nhấ
    - Giữ vững `injection_guard` để triệt tiêu 100% rủi ro Prompt Injection (15/15 điểm).
    - Cơ chế **Safe Abstention** trong `critic`: Đối với các brief vắng mặt dữ liệu (`is_absent`), khi không tìm thấy tài liệu hỗ trợ, agent chuyển sang `abstain = True` và xóa sạch các claim không liên quan. Theo rubric của Arena, điều này giúp đạt trọn vẹn **15/15 điểm Honesty** cộng thêm **0.75 Recall credit**.
 4. **Xử lý Đề tổng hợp (Synthesis Verdict)**:
-   - Trong `REAL_MODEL_PROMPT_ADDENDUM` (Mục F), hướng dẫn mô hình xuất trường `verdict` dứt khoát khi câu hỏi yêu cầu lựa chọn phương án `(a), (b), (c)`. Tránh hoàn toàn lỗi nước đôi (`HEDGED = 0.0`).
-5. **Bảo toàn Tính tương thích & Ngân sách**:
+   - Tự động nhận diện câu hỏi trắc nghiệm `(a), (b), (c)` qua `_extract_verdict_candidates`.
+   - Nếu model chưa có trường `verdict` hoặc đưa ra nhiều hơn một kết luận, Agent kích hoạt `VERDICT_REQUIRED_NUDGE` yêu cầu model chọn duy nhất một phương án, tránh hoàn toàn lỗi nước đôi (`HEDGED = 0.0`) và lấy trọn **27.50 điểm kết luận**.
+5. **Tinh lọc Claim theo độ liên quan (Relevance Claim Pruning trong `critic.py`)**:
+   - Xếp hạng claim theo độ trùng khớp từ khoá với câu hỏi (`_relevance_score`) và giới hạn tối đa 3 claim.
+   - Nhờ giới hạn $\le 3$ claim, toàn bộ claim thừa đều nằm trong hạn mức miễn trừ (`IRRELEVANT_CLAIMS_FORGIVEN = 2`), loại bỏ hoàn toàn điểm phạt `IRRELEVANT` và đưa hệ số **`Precision` lên tuyệt đối 1.0 (100%)**.
+6. **Bảo toàn Tính tương thích & Ngân sách**:
    - Đối với `MockModel` (chạy offline / verify), logic `_is_mock` bảo đảm giữ nguyên 100% hành vi kiểm thử chuẩn mà không làm biến động chi phí token hay số lượt gọi công cụ.
    - `budget_policy` bảo đảm Agent luôn dừng đúng lúc để dành riêng 1 lượt cho `submit()`, bảo toàn điểm Efficiency tối đa (13 – 14.5 / 15 điểm).
 

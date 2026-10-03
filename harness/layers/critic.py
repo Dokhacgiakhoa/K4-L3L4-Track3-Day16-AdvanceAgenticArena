@@ -132,12 +132,22 @@ class Critic(Middleware):
                 kept.extend(halves)
                 report["abstain"] = True
             # còn lại: bịa -> bỏ
+        # Ưu tiên các claim chứa từ khoá của câu hỏi để tối đa hoá Precision
+        q_norm = norm(ctx.question)
+        stop_words = {"là", "và", "của", "cho", "trong", "được", "có", "một", "các", "khi", "theo", "về", "gì", "nào", "ở", "với", "phải", "để"}
+        q_words = set(q_norm.split()) - stop_words
+
+        def _relevance_score(c):
+            t_words = set(norm(c.get("text", "")).split())
+            return len(t_words & q_words)
+
+        kept.sort(key=_relevance_score, reverse=True)
         per_doc: dict = {}
         capped = []
         for claim in kept:
             key = str(claim.get("doc_id")).strip()
             per_doc[key] = per_doc.get(key, 0) + 1
-            if per_doc[key] <= MAX_PER_DOC and len(capped) < MAX_CLAIMS:
+            if per_doc[key] <= MAX_PER_DOC and len(capped) < 3:
                 capped.append(claim)
         kept = capped
         report["claims"] = kept

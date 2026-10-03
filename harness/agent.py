@@ -214,10 +214,10 @@ def _extract_key_terms(question: str) -> list[str]:
 
 
 def _extract_verdict_candidates(question: str) -> list[str]:
-    """Phát hiện nếu câu hỏi chứa các phương án lựa chọn dạng (a) ..., (b) ..., (c) ..."""
+    """Phát hiện nếu câu hỏi chứa các phương án lựa chọn dạng (a) ..., (b) ..., (c) ... hoặc (1), (2), (3)..."""
     if not isinstance(question, str):
         return []
-    matches = re.findall(r"\([a-d]\)\s*([^;.\n]+)", question, re.IGNORECASE)
+    matches = re.findall(r"\([a-d1-4]\)\s*([^;.\n]+)", question, re.IGNORECASE)
     return [m.strip() for m in matches if m.strip()]
 
 #: What a model writes where CONTENT belongs when it is QUOTING the
@@ -604,7 +604,7 @@ class ReActAgent:
         self.trace.emit("agent_start", brief_id=str(brief.get("brief_id", "")))
 
         ctx.messages = [
-            {"role": "system", "content": _effective_system_prompt(self.system_prompt, self.model)},
+            {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": ctx.question},
         ]
         self.middleware.before_agent(ctx)
@@ -719,13 +719,20 @@ class ReActAgent:
                     self._read_refused = True
                     return READ_FIRST_NUDGE
 
-        # Nếu câu hỏi là đề synthesis yêu cầu chọn phương án, đảm bảo có verdict
+        # Nếu câu hỏi là đề synthesis yêu cầu chọn phương án, đảm bảo có verdict và không hedge
         verdict_candidates = _extract_verdict_candidates(ctx.question)
         if verdict_candidates and isinstance(final, dict):
-            raw_v = final.get("verdict")
-            if not raw_v or not str(raw_v).strip():
+            raw_v = str(final.get("verdict") or "").strip()
+            if not raw_v:
                 if limit is None or calls <= limit - 1 - PREMATURE_MIN_CALLS_LEFT:
                     return VERDICT_REQUIRED_NUDGE
+            else:
+                asserted_count = sum(1 for c in verdict_candidates if c.lower() in raw_v.lower())
+                if asserted_count > 1:
+                    return (
+                        "Bạn đang đưa ra nhiều hơn một phương án kết luận trong trường 'verdict'. "
+                        "Giao thức yêu cầu chỉ chọn DUY NHẤT một phương án, không nêu cả hai và không chép lại các phương án khác."
+                    )
 
         return None
 
